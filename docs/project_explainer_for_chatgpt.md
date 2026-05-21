@@ -481,10 +481,481 @@ If the best retrieval score is below the threshold, the system refuses to answer
 
 I would fix the local Python/Torch setup to use MiniLM embeddings directly, add stronger PII redaction, use a real hosted metrics store, add API authentication, and deploy with a proper model registry alias.
 
-## 15. Exact Demo Commands
+## 15. Fool-Proof Run Guide: Where To Run Commands And What You Should See
+
+This section is written as an operator checklist. Follow it exactly when you want to run the project and see the output.
+
+### Step 0: Open The Correct Terminal
+
+Open **VS Code**, then open:
+
+```text
+Terminal -> New Terminal
+```
+
+The terminal should be **PowerShell**.
+
+Move into the project folder:
+
+```powershell
+cd "C:\Users\Sharanya Naresh\Documents\Mini Project Week 13\customer-intelligence-platform"
+```
+
+Check that you are in the correct folder:
+
+```powershell
+Get-ChildItem
+```
+
+You should see files/folders like:
+
+```text
+README.md
+requirements.txt
+src
+tests
+docs
+monitoring
+Dockerfile
+docker-compose.yml
+```
+
+If you do not see these, you are in the wrong folder.
+
+### Step 1: Confirm Dependencies Are Installed
+
+Run:
+
+```powershell
+pip install -r requirements.txt
+```
+
+Expected result:
+
+```text
+Successfully installed ...
+```
+
+If packages are already installed, pip may say:
+
+```text
+Requirement already satisfied
+```
+
+That is also fine.
+
+### Step 2: Ingest The Datasets
+
+Run:
+
+```powershell
+python src\data_pipeline\ingest.py --sample 5000
+```
+
+Expected result:
+
+```text
+Removed 3 UCI rows with duration <= 0 to satisfy validation rules.
+data\bank_marketing.csv | rows=45208 | hash=<long hash> | seconds=<number> | source=public download
+data\cfpb_complaints_sample.csv | rows=5000 | hash=<long hash> | seconds=<number> | source=public download
+```
+
+If the CFPB public download is unavailable, the script may say it generated a synthetic sample. That fallback is acceptable for reliability, but the preferred output is the public download.
+
+What this proves:
+
+- UCI data is available locally.
+- CFPB complaint data is available locally.
+- Hash files exist for data versioning.
+
+### Step 3: Validate The UCI Dataset
+
+Run:
 
 ```powershell
 python src\data_pipeline\validate.py
+```
+
+Expected result:
+
+```text
+Validation passed - 45208 rows, 17 columns.
+```
+
+What this proves:
+
+- Pandera schema works.
+- Business rules are enforced.
+- Training data is clean enough for model training.
+
+### Step 4: Train The ML Models
+
+Run:
+
+```powershell
+python src\training\train.py
+```
+
+Expected result:
+
+```text
+Training baseline and improved models with MLflow tracking...
+baseline | run_id=<id> | roc_auc=<number> | pr_auc=<number> | f1=<number> | latency_ms=<number>
+improved | run_id=<id> | roc_auc=<number> | pr_auc=<number> | f1=<number> | latency_ms=<number>
+Training complete. PR-AUC delta=<number>, F1 delta=<number>.
+```
+
+What this proves:
+
+- Baseline Logistic Regression trained.
+- Improved XGBoost model trained.
+- MLflow runs and artifacts were created.
+- Scaler and categorical mappings were saved for serving.
+
+### Step 5: Open MLflow UI
+
+Run this in a terminal:
+
+```powershell
+mlflow ui
+```
+
+Then open this in your browser:
+
+```text
+http://127.0.0.1:5000
+```
+
+What to show:
+
+- Experiment named `customer-intelligence-platform`.
+- Baseline run.
+- Improved run.
+- Metrics such as ROC-AUC, PR-AUC, F1, Brier score.
+- Artifacts such as model, scaler, feature importance, calibration curve.
+
+If `mlflow ui` keeps the terminal busy, open a new PowerShell terminal for the next commands.
+
+### Step 6: Run The Model Promotion Gate
+
+Run:
+
+```powershell
+python src\training\evaluate.py
+```
+
+Expected result:
+
+```text
+Promotion gate demo 1: expected PASS
+✅ PROMOTED - PR-AUC delta=<number>, F1 delta=<number>, latency=<number>ms
+
+Promotion gate demo 2: intentional degraded model expected BLOCK
+🚫 BLOCKED - reason: ...
+```
+
+What this proves:
+
+- The improved model beats the baseline.
+- A deliberately weak model is blocked.
+- The project has a real release gate instead of blindly accepting any new model.
+
+### Step 7: Build The RAG/FAISS Index
+
+Run:
+
+```powershell
+python src\rag\build_index.py
+```
+
+Expected result:
+
+```text
+PII CHECK: loading only safe metadata columns and sanitized complaint narratives.
+total_chunks=<number> | embedding_time_seconds=<number> | index_file_size_bytes=<number> | embedding_model=<model>
+```
+
+Possible local note:
+
+If Torch cannot load, you may see:
+
+```text
+MiniLM embedding unavailable, using local HashingVectorizer fallback.
+```
+
+This is acceptable for this local run because the system still builds a FAISS index and RAG evaluation passes.
+
+What this proves:
+
+- Complaint records were processed.
+- PII-sensitive columns were not indexed.
+- FAISS retrieval index exists.
+- Chunk metadata exists.
+
+### Step 8: Run The RAG Evaluation
+
+Run:
+
+```powershell
+python src\rag\rag_eval.py
+```
+
+Expected result:
+
+```text
+T01 ... PASS
+...
+T20 ... PASS
+Wrote docs\rag_eval_report.md
+```
+
+What this proves:
+
+- Standard retrieval cases work.
+- Adversarial questions are refused.
+- Edge cases are handled.
+- RAG eval report is generated.
+
+### Step 9: Run All Tests
+
+Run:
+
+```powershell
+python -m pytest tests\ -q
+```
+
+Expected result:
+
+```text
+14 passed
+```
+
+You may also see third-party warnings from MLflow/Pydantic. These warnings are acceptable because the tests pass and the warnings are from installed libraries, not project logic.
+
+### Step 10: Start The ML API And View The UI
+
+Open a new PowerShell terminal in the project folder and run:
+
+```powershell
+python -m uvicorn src.serving.serve:app --host 127.0.0.1 --port 8000
+```
+
+Keep this terminal running.
+
+Open this in your browser:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+This is the interactive Swagger UI for the ML API.
+
+Test health in another terminal:
+
+```powershell
+curl.exe http://127.0.0.1:8000/health
+```
+
+Expected result:
+
+```json
+{
+  "status": "ok",
+  "model_version": "<mlflow-run-id>",
+  "index_version": "data/faiss.index",
+  "uptime_seconds": 10.123
+}
+```
+
+### Step 11: Test ML Prediction
+
+Run in a second terminal:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" -d "{\"age\":42,\"job\":\"management\",\"marital\":\"married\",\"education\":\"tertiary\",\"default\":\"no\",\"balance\":1200,\"housing\":\"yes\",\"loan\":\"no\",\"contact\":\"cellular\",\"day\":15,\"month\":\"may\",\"duration\":180,\"campaign\":2,\"pdays\":-1,\"previous\":0,\"poutcome\":\"unknown\"}"
+```
+
+Expected result:
+
+```json
+{
+  "prediction": 0,
+  "probability": 0.1104,
+  "threshold_decision": false,
+  "model_version": "<mlflow-run-id>",
+  "latency_ms": 20.0
+}
+```
+
+The exact probability and latency may differ slightly.
+
+Test invalid input:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" -d "{\"age\":42,\"job\":\"management\"}"
+```
+
+Expected result:
+
+```text
+422 validation error
+```
+
+What this proves:
+
+- The model API works.
+- Pydantic validation rejects incomplete payloads.
+
+### Step 12: Start The RAG API And View The UI
+
+Open another PowerShell terminal in the project folder and run:
+
+```powershell
+python -m uvicorn src.rag.answer:app --host 127.0.0.1 --port 8001
+```
+
+Keep this terminal running.
+
+Open this in your browser:
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+This is the interactive Swagger UI for the RAG API.
+
+Test the RAG endpoint:
+
+```powershell
+$body = @{ question = "What themes appear around debt not owed?" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/ask-complaints" -Method Post -ContentType "application/json" -Body $body
+```
+
+Expected result:
+
+```text
+answer: <evidence-grounded answer>
+evidence_ids: <list of complaint IDs>
+refused: False
+```
+
+What this proves:
+
+- Retrieval works.
+- Evidence IDs are returned.
+- The RAG service can answer from complaint evidence.
+
+### Step 13: Test The Integrated Customer Intelligence Endpoint
+
+Make sure the ML API on port `8000` is running.
+
+Run:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/customer-intel -H "Content-Type: application/json" -d "{\"customer\":{\"age\":42,\"job\":\"management\",\"marital\":\"married\",\"education\":\"tertiary\",\"default\":\"no\",\"balance\":1200,\"housing\":\"yes\",\"loan\":\"no\",\"contact\":\"cellular\",\"day\":15,\"month\":\"may\",\"duration\":180,\"campaign\":2,\"pdays\":-1,\"previous\":0,\"poutcome\":\"unknown\"},\"product\":\"Credit reporting\",\"issue\":\"Incorrect information\"}"
+```
+
+Expected result:
+
+```json
+{
+  "conversion_band": "low",
+  "conversion_probability": 0.1104,
+  "top_complaint_themes": ["Incorrect information on your report"],
+  "cited_record_ids": ["5597543", "8105787"],
+  "model_version": "<mlflow-run-id>",
+  "index_version": "data/faiss.index"
+}
+```
+
+What this proves:
+
+- ML and RAG logic are integrated.
+- One endpoint returns both conversion intelligence and complaint intelligence.
+
+### Step 14: Generate Monitoring Reports
+
+Run:
+
+```powershell
+python monitoring\ml_drift.py
+python monitoring\rag_monitor.py
+```
+
+Expected result from ML drift:
+
+```text
+Drifted features: [...]
+Retrain not triggered - drift score: <number>.
+```
+
+Expected result from RAG monitor:
+
+```text
+| metric | value |
+| retrieval_hit_rate | <number> |
+| refusal_rate | <number> |
+```
+
+Files generated:
+
+```text
+monitoring/ml_drift_report.html
+monitoring/rag_monitoring_report.json
+```
+
+Open the HTML report by double-clicking it in File Explorer.
+
+### Step 15: Optional Docker Compose Run
+
+Use this only if Docker Desktop is running.
+
+Run:
+
+```powershell
+docker-compose up --build -d
+docker-compose ps
+curl.exe http://127.0.0.1:8000/health
+curl.exe http://127.0.0.1:8001/health
+```
+
+Stop:
+
+```powershell
+docker-compose down
+```
+
+What this proves:
+
+- Both services can run as containers.
+- The local production spine works outside direct Python execution.
+
+### Step 16: What To Screenshot For Submission
+
+Recommended screenshots:
+
+1. VS Code repo structure.
+2. `README.md` top section.
+3. `python src\data_pipeline\validate.py` output.
+4. MLflow UI showing baseline and improved runs.
+5. `python src\training\evaluate.py` showing promoted and blocked outcomes.
+6. FastAPI docs at `http://127.0.0.1:8000/docs`.
+7. `/predict` response.
+8. FastAPI docs at `http://127.0.0.1:8001/docs`.
+9. `/ask-complaints` response with evidence IDs.
+10. `/customer-intel` response.
+11. GitHub Actions page after pushing.
+12. `monitoring/ml_drift_report.html`.
+13. `monitoring/rag_monitoring_report.json`.
+
+## 16. Quick Command Checklist
+
+```powershell
+cd "C:\Users\Sharanya Naresh\Documents\Mini Project Week 13\customer-intelligence-platform"
+pip install -r requirements.txt
+python src\data_pipeline\ingest.py --sample 5000
+python src\data_pipeline\validate.py
+python src\training\train.py
 python src\training\evaluate.py
 python src\rag\build_index.py
 python src\rag\rag_eval.py
