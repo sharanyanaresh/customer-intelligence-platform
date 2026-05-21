@@ -1,0 +1,16 @@
+data/*.csv
+data/*.json
+data/*.txt
+data/*.index
+mlruns/
+*.env
+.env
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+*.faiss
+models/
+monitoring/*.html
+monitoring/*.json
+monitoring/*.jsonl

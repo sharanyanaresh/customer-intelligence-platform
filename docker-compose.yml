@@ -1,0 +1,49 @@
+services:
+  ml-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: customer-intel-ml-api
+    env_file:
+      - .env.example
+    environment:
+      APP_PORT: "8000"
+      MLFLOW_TRACKING_URI: file:./mlruns
+      FAISS_INDEX_PATH: data/faiss.index
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./mlruns:/app/mlruns
+      - ./models:/app/models
+    command: ["uvicorn", "src.serving.serve:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  rag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: customer-intel-rag-api
+    env_file:
+      - .env.example
+    environment:
+      APP_PORT: "8001"
+      FAISS_INDEX_PATH: data/faiss.index
+      SIMILARITY_THRESHOLD: "0.35"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+      - ./monitoring:/app/monitoring
+    command: ["uvicorn", "src.rag.answer:app", "--host", "0.0.0.0", "--port", "8001"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

@@ -1,0 +1,39 @@
+name: Model Evaluation Gate
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ingest data
+        run: python src/data_pipeline/ingest.py --sample 100
+
+      - name: Run promotion gate
+        id: gate
+        run: |
+          python src/training/evaluate.py --mode gate | tee gate_output.txt
+          if grep -q "🚫 BLOCKED" gate_output.txt; then
+            echo "Model did not meet promotion gate."
+            exit 1
+          fi
+          if grep -q "✅ PROMOTED" gate_output.txt; then
+            echo "Promotion gate passed."
+          else
+            echo "Promotion gate output was not recognized."
+            exit 1
+          fi
